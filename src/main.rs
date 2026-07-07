@@ -1,9 +1,8 @@
 use std::env;
-use std::io::{self, Read, BufReader, Write};
+use std::io::{Read, BufReader, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
-const REPLY_TIMEOUT: Duration = Duration::from_millis(300);
 const MAX_MSG: usize = 135;
 
 struct Client {
@@ -12,18 +11,20 @@ struct Client {
 }
 
 impl Client {
-    fn new(addr: &str) -> io::Result<Self> {
+    fn new(addr: &str) -> std::io::Result<Self> {
         let stream = TcpStream::connect(addr)?;
-        stream.set_read_timeout(Some(REPLY_TIMEOUT))?;
-
         Ok(Self {
             reader: BufReader::new(stream),
             buf: [0; MAX_MSG]
         })
     }
 
-    fn send(&mut self, cmd: &str) -> io::Result<&[u8]> {
-        write!(self.reader.get_mut(), "{cmd}\r")?;
+    fn send(&mut self, cmd: &str) -> std::io::Result<()> {
+        write!(self.reader.get_mut(), "{cmd}\r")
+    }
+
+    /// Reads a single CR-terminated message into the internal buffer.
+    fn read_message(&mut self) -> std::io::Result<&[u8]> {
         let mut len = 0;
 
         for b in self.reader.by_ref().bytes().take(MAX_MSG) {
@@ -33,26 +34,29 @@ impl Client {
                 _ => break,
             }
         }
-
+        
         Ok(&self.buf[..len])
     }
-}
 
-fn main() {
-    let mut args = env::args().skip(1);
-    let ip = args.next().expect("usage: <ip> <cmd> [cmd...]");
-    let mut client = Client::new(&format!("{}:23", ip)).expect("connection failed");
-    
-    for cmd in args {
-        match client.send(&cmd) {
-            Ok(reply) => println!("{}", String::from_utf8_lossy(reply)),
-            Err(e) => eprintln!("error: {e}"),
+    /// Reads incoming messages until the connection drops.
+    fn listen(&mut self) -> std::io::Result<()> {
+        loop {
+            let msg = self.read_message()?;
+            if !msg.is_empty() {
+                println!("{}", String::from_utf8_lossy(msg));
+            }
         }
     }
 }
 
-// ./target/release/denon 192.168.0.10 'PW?'
-// ./target/release/denon 192.168.0.10 'NSE' 
-// Minimal, dependency-free wrapper around Denon AVR protocol. Easily extensible. Usage:
-//
-// Example script in main
+fn main() {
+    let mut client = Client::new("192.168.0.10:23").expect("connection failed");
+
+    let mut write_stream = client.reader.get_mut().try_clone().expect("clone failed");
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(3));
+        write!(write_stream, "PW?\r").unwrap();
+    });
+
+    client.listen().unwrap_or_else(|e| eprintln!("connection closed: {e}"));
+}
