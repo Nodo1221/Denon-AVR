@@ -58,21 +58,27 @@ impl Client {
     }
 
     fn handle(msg: &str) {
-        let i = msg
-            .find(|c: char| !c.is_ascii_uppercase())
-            .unwrap_or(msg.len());
-        let (cmd, val) = (&msg[..i], &msg[i..]);
-        match cmd {
-            "PW" => println!("power: {val}"),
-            "MV" => println!("volume: {val}"),
-            "MU" => println!("mute: {val}"),
-            "SI" => println!("input: {val}"),
-            "MS" => println!("surround: {val}"),
-            "ZM" => println!("zone: {val}"),
-            "SLP" => println!("sleep: {val}"),
-            "NSE" => println!("display[{}]: {}", &val[..1], &val[1..]),
-            _ => println!("unknown: {cmd} {val}"),
+        let handlers: &[(&str, fn(&str))] = &[
+            ("PW", |val| println!("power: {val}")),
+            ("MV", |val| println!("volume: {val}")),
+            ("MU", |val| println!("mute: {val}")),
+            ("SI", |val| println!("input: {val}")),
+            ("MS", |val| println!("surround: {val}")),
+            ("ZM", |val| println!("zone: {val}")),
+            ("SLP", |val| println!("sleep: {val}")),
+            ("NSE", |val| {
+                println!("display[{}]: {}", &val[..1], &val[1..])
+            }),
+        ];
+
+        for (prefix, handler) in handlers {
+            if let Some(val) = msg.strip_prefix(prefix) {
+                handler(val);
+                return;
+            }
         }
+
+        eprintln!("unknown: {msg}");
     }
 }
 
