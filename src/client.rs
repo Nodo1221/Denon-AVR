@@ -9,7 +9,7 @@ const MAX_MSG: usize = 135;
 
 #[derive(Debug)]
 enum Error {
-    Parse,
+    Parse(String),
 }
 
 pub struct Client {
@@ -57,22 +57,26 @@ impl Client {
 
     fn handle(data: &[u8]) -> Result<Event, Error> {
         if data.len() < 3 {
-            return Err(Error::Parse);
+            return Err(Error::Parse(format!("{data:?}")));
         }
 
-        let msg = str::from_utf8(data).map_err(|_| Error::Parse)?;
+        let msg = str::from_utf8(data)
+            .map_err(|_| Error::Parse(format!("{data:?}")))?;
 
         Ok(match msg.split_at(2) {
             ("SL", "POFF")    => Event::Sleep(None),
-            ("SL", rest)      => Event::Sleep(Some(rest[1..].parse().map_err(|_| Error::Parse)?)),
+            ("SL", rest)      => Event::Sleep(Some(rest[1..].parse().map_err(|_| Error::Parse(msg.to_owned()))?)),
             ("PW", "ON")      => Event::Power(true),
             ("PW", "STANDBY") => Event::Power(false),
             ("MU", "ON")      => Event::Mute(true),
             ("MU", "OFF")     => Event::Mute(false),
             ("SI", rest)      => Event::Input(rest.to_owned()),
-            ("MV", rest)      => Event::Volume(rest.parse().map_err(|_| Error::Parse)?),
-            ("NS", rest) if rest.len() >= 2 => Event::Display(rest.as_bytes()[1] - b'0', rest[2..].to_owned()),
-            ("NS", _)         => return Err(Error::Parse),
+            ("MV", rest)      => Event::Volume(
+                rest.parse().map_err(|_| Error::Parse(msg.to_owned()))?
+            ),
+            ("NS", rest) if rest.len() >= 2
+                            => Event::Display(rest.as_bytes()[1] - b'0', rest[2..].to_owned()),
+            ("NS", _)         => return Err(Error::Parse(msg.to_owned())),
             _                 => Event::Unknown(msg.to_owned()),
         })
     }
