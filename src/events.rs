@@ -3,7 +3,7 @@ pub enum Event {
     Power(bool),
     Volume(u8),
     Mute(bool),
-    Sleep(bool),
+    Sleep(Option<u32>),
     Input(String),
     Display(u8, String),
     Unknown(String),
