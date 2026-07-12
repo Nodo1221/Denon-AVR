@@ -1,42 +1,46 @@
 use denon::client::Client;
+use std::ffi::os_str::Display;
 use std::sync::mpsc;
 
 use ratatui::crossterm::event::{self, Event as CEvent, KeyCode};
 use ratatui::widgets::{Block, Borders, Paragraph, Gauge};
-use ratatui::style::{Style, Color};
+use ratatui::style::{Style, Color, Modifier};
 use ratatui::layout::{Constraint, Layout};
+use ratatui::text::{Span, Line};
 use std::time::Duration;
 use denon::events::Event;
+// use denon::state;
+use denon::state::State;
 use std::io::Write;
 use std::collections::VecDeque;
 
-#[derive(Debug, Default)]
-pub struct State {
-    pub power: Option<bool>,
-    pub mute: Option<bool>,
-    pub volume: Option<u8>,
-    pub input: Option<String>,
-    pub sleep: Option<u8>,
-    pub display: [Option<String>; 9],
-}
+// #[derive(Debug, Default)]
+// pub struct State {
+//     pub power: Option<bool>,
+//     pub mute: Option<bool>,
+//     pub volume: Option<u8>,
+//     pub input: Option<String>,
+//     pub sleep: Option<u8>,
+//     pub display: [Option<String>; 9],
+// }
 
-impl State {
-    pub fn apply(&mut self, event: Event) {
-        match event {
-            Event::Power(v)   => self.power = Some(v),
-            Event::Mute(v)    => self.mute = Some(v),
-            Event::Volume(v)  => self.volume = Some(v),
-            Event::Input(v)   => self.input = Some(v),
-            Event::Sleep(v)   => self.sleep = v,
-            Event::Display(n, s) => {
-                if let Some(slot) = self.display.get_mut(n as usize) {
-                    *slot = Some(s);
-                }
-            }
-            Event::Unknown(_) => {}
-        }
-    }
-}
+// impl State {
+//     pub fn apply(&mut self, event: Event) {
+//         match event {
+//             Event::Power(v)   => self.power = Some(v),
+//             Event::Mute(v)    => self.mute = Some(v),
+//             Event::Volume(v)  => self.volume = Some(v),
+//             Event::Input(v)   => self.input = Some(v),
+//             Event::Sleep(v)   => self.sleep = v,
+//             Event::Display(n, s) => {
+//                 if let Some(slot) = self.display.get_mut(n as usize) {
+//                     *slot = Some(s);
+//                 }
+//             }
+//             Event::Unknown(_) => {}
+//         }
+//     }
+// }
 
 fn main() -> std::io::Result<()> {
     let mut client = Client::new("192.168.0.10:23").expect("connection failed");

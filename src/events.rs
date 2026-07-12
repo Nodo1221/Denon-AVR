@@ -7,4 +7,5 @@ pub enum Event {
     Input(String),
     Display(u8, String),
     Unknown(String),
+    Error(String),
 }

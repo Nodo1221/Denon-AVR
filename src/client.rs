@@ -50,7 +50,11 @@ impl Client {
                         return Ok(());
                     }
                 }
-                Err(e) => eprintln!("parse error: {e:?}"),
+                Err(e) => {
+                    if tx.send(Event::Error(format!("{e:?}"))).is_err() {
+                        return Ok(());
+                    }
+                }
             }
         }
     }

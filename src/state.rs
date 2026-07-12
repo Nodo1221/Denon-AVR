@@ -19,7 +19,7 @@ impl State {
             Event::Input(v) => self.input = Some(v),
             Event::Sleep(v) => self.sleep = v,
             Event::Display(n, s) => self.display[n as usize] = s,
-            Event::Unknown(_) => {}
+            Event::Unknown(_) | Event::Error(_) => {}
         }
     }
 }
