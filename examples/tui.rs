@@ -1,11 +1,12 @@
 use denon::client::Client;
+use ratatui::symbols::line::BOTTOM_LEFT;
 use std::ffi::os_str::Display;
 use std::sync::mpsc;
 
 use ratatui::crossterm::event::{self, Event as CEvent, KeyCode};
 use ratatui::widgets::{Block, Borders, Paragraph, Gauge};
 use ratatui::style::{Style, Color, Modifier};
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::text::{Span, Line};
 use std::time::Duration;
 use denon::events::Event;
@@ -55,7 +56,7 @@ fn main() -> std::io::Result<()> {
     let mut log: VecDeque<String> = VecDeque::new();
     let mut command_buf: Option<String> = None;
 
-    ratatui::run(|mut terminal| {
+    ratatui::run(|terminal| {
         loop {
             while let Ok(event) = rx.try_recv() {
                 log.push_back(format!("{event:?}"));
@@ -73,8 +74,8 @@ fn main() -> std::io::Result<()> {
                 ])
                 .areas(frame.area());
 
-                let [left_area, log_area] =
-                    Layout::horizontal([Constraint::Percentage(65), Constraint::Percentage(35)])
+                let [log_area, left_area] =
+                    Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)])
                         .areas(main_area);
 
                 let [volume_area, display_area] =
@@ -87,12 +88,12 @@ fn main() -> std::io::Result<()> {
                     None => Span::styled("●", Style::default().fg(Color::DarkGray)),
                 };
                 let sleep_text = match state.sleep {
-                    Some(m) => format!("(Sleep: {m}m)"),
-                    None => "(no sleep)".to_string(),
+                    Some(m) => format!("(Sleep: {m}m) "),
+                    None => "(no sleep) ".to_string(),
                 };
                 let title = Line::from(vec![
                     Span::styled(
-                        "Denon AVR ",
+                        " Denon AVR ",
                         Style::default()
                             .fg(Color::Rgb(255, 215, 0))
                             .add_modifier(Modifier::BOLD),
@@ -104,7 +105,7 @@ fn main() -> std::io::Result<()> {
 
                 let header_text = format!("Mute:  {:?}\nInput: {:?}", state.mute, state.input);
                 let header = Paragraph::new(header_text)
-                    .block(Block::default().title(title).borders(Borders::ALL));
+                    .block(Block::default().title(title).title_alignment(Alignment::Center).borders(Borders::ALL));
                 frame.render_widget(header, header_area);
 
                 let volume = state.volume.unwrap_or(0);
