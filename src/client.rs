@@ -55,6 +55,10 @@ impl Client {
         }
     }
 
+    pub fn try_clone_stream(&self) -> io::Result<TcpStream> {
+        self.reader.get_ref().try_clone()
+    }
+
     fn handle(data: &[u8]) -> Result<Event, Error> {
         if data.len() < 3 {
             return Err(Error::Parse(format!("{data:?}")));
