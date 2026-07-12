@@ -49,51 +49,63 @@ fn main() -> std::io::Result<()> {
     client.send(&queries).unwrap();
 
     let mut writer = client.try_clone_stream()?;
+    let rx = client.spawn_listener();
 
-    let (tx, rx) = mpsc::channel();
     let mut state = State::default();
     let mut log: VecDeque<String> = VecDeque::new();
     let mut command_buf: Option<String> = None;
-
-    std::thread::spawn(move || {
-        client
-            .listen(tx)
-            .unwrap_or_else(|e| eprintln!("connection closed: {e}"));
-    });
 
     ratatui::run(|mut terminal| {
         loop {
             while let Ok(event) = rx.try_recv() {
                 log.push_back(format!("{event:?}"));
+                state.apply(event);
                 if log.len() > 200 {
                     log.pop_front();
                 }
-                state.apply(event);
             }
 
             terminal.draw(|frame| {
-                let [main_area, input_area] =
-                    Layout::vertical([Constraint::Min(10), Constraint::Length(3)])
-                        .areas(frame.area());
+                let [header_area, main_area, input_area] = Layout::vertical([
+                    Constraint::Length(4),
+                    Constraint::Min(10),
+                    Constraint::Length(3),
+                ])
+                .areas(frame.area());
 
                 let [left_area, log_area] =
                     Layout::horizontal([Constraint::Percentage(65), Constraint::Percentage(35)])
                         .areas(main_area);
 
-                let [status_area, volume_area, display_area] = Layout::vertical([
-                    Constraint::Length(7),
-                    Constraint::Length(3),
-                    Constraint::Min(5),
-                ])
-                .areas(left_area);
+                let [volume_area, display_area] =
+                    Layout::vertical([Constraint::Length(3), Constraint::Min(5)])
+                        .areas(left_area);
 
-                let text = format!(
-                    "Power:  {:?}\nMute:   {:?}\nInput:  {:?}\nSleep:  {:?}\n\n(q to quit, ↑/↓ volume, / for command)",
-                    state.power, state.mute, state.input, state.sleep
-                );
-                let status = Paragraph::new(text)
-                    .block(Block::default().title("Denon AVR").borders(Borders::ALL));
-                frame.render_widget(status, status_area);
+                let power_icon = match state.power {
+                    Some(true) => Span::styled("●", Style::default().fg(Color::Green)),
+                    Some(false) => Span::styled("●", Style::default().fg(Color::Yellow)),
+                    None => Span::styled("●", Style::default().fg(Color::DarkGray)),
+                };
+                let sleep_text = match state.sleep {
+                    Some(m) => format!("(Sleep: {m}m)"),
+                    None => "(no sleep)".to_string(),
+                };
+                let title = Line::from(vec![
+                    Span::styled(
+                        "Denon AVR ",
+                        Style::default()
+                            .fg(Color::Rgb(255, 215, 0))
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    power_icon,
+                    Span::raw(" "),
+                    Span::styled(sleep_text, Style::default().fg(Color::Gray)),
+                ]);
+
+                let header_text = format!("Mute:  {:?}\nInput: {:?}", state.mute, state.input);
+                let header = Paragraph::new(header_text)
+                    .block(Block::default().title(title).borders(Borders::ALL));
+                frame.render_widget(header, header_area);
 
                 let volume = state.volume.unwrap_or(0);
                 let ratio = (volume as f64 / 60.0).clamp(0.0, 1.0);
@@ -104,21 +116,14 @@ fn main() -> std::io::Result<()> {
                     .label(format!("{volume}/60"));
                 frame.render_widget(gauge, volume_area);
 
-                let display_lines: Vec<&str> = state
-                    .display
-                    .iter()
-                    .filter_map(|line| line.as_deref())
-                    .collect();
+                let display_lines = state.display.to_vec();
+
                 let display_widget = Paragraph::new(display_lines.join("\n"))
                     .block(Block::default().title("Display").borders(Borders::ALL));
                 frame.render_widget(display_widget, display_area);
 
-                let log_text = log
-                    .iter()
-                    .map(String::as_str)
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let inner_height = log_area.height.saturating_sub(2); // borders
+                let log_text = log.iter().map(String::as_str).collect::<Vec<_>>().join("\n");
+                let inner_height = log_area.height.saturating_sub(2);
                 let scroll = (log.len() as u16).saturating_sub(inner_height);
                 let log_widget = Paragraph::new(log_text)
                     .block(Block::default().title("Log").borders(Borders::ALL))
@@ -134,7 +139,7 @@ fn main() -> std::io::Result<()> {
                 frame.render_widget(input_widget, input_area);
 
                 if let Some(buf) = &command_buf {
-                    let x = input_area.x + 1 + 1 + buf.chars().count() as u16;
+                    let x = input_area.x + 2 + buf.chars().count() as u16;
                     let y = input_area.y + 1;
                     frame.set_cursor_position((x, y));
                 }
