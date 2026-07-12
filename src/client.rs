@@ -59,6 +59,12 @@ impl Client {
         self.reader.get_ref().try_clone()
     }
 
+    pub fn spawn_listener(self) -> mpsc::Receiver<Event> {
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || self.listen(tx).unwrap_or_else(|e| eprintln!("connection closed: {e}")));
+        rx
+    }
+
     fn handle(data: &[u8]) -> Result<Event, Error> {
         if data.len() < 3 {
             return Err(Error::Parse(format!("{data:?}")));
