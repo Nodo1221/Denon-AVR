@@ -12,26 +12,22 @@ enum Error {
     Parse(String),
 }
 
-pub struct Client {
+pub struct Writer {
+    stream: TcpStream,
+}
+
+impl Writer {
+    pub fn send(&mut self, cmds: &[&str]) -> io::Result<()> {
+        write!(self.stream, "{}\r", cmds.join("\r"))
+    }
+}
+
+pub struct Reader {
     reader: BufReader<TcpStream>,
     buf: Vec<u8>,
 }
 
-impl Client {
-    pub fn new(addr: &str) -> io::Result<Self> {
-        let stream = TcpStream::connect(addr)?;
-        stream.set_read_timeout(Some(Duration::from_millis(500)))?;
-
-        Ok(Self {
-            reader: BufReader::new(stream),
-            buf: Vec::with_capacity(MAX_MSG),
-        })
-    }
-
-    pub fn send(&mut self, cmds: &[&str]) -> io::Result<()> {
-        write!(self.reader.get_mut(), "{}\r", cmds.join("\r"))
-    }
-
+impl Reader {
     fn read_message(&mut self) -> io::Result<&[u8]> {
         self.buf.clear();
         self.reader.read_until(b'\r', &mut self.buf)?;
@@ -40,33 +36,33 @@ impl Client {
     }
 
     pub fn listen(mut self, tx: mpsc::Sender<Event>) -> io::Result<()> {
-        self.reader.get_mut().set_read_timeout(None)?;
-
         loop {
             let data = self.read_message()?;
-            match Self::handle(data) {
-                Ok(event) => {
-                    if tx.send(event).is_err() {
-                        return Ok(());
-                    }
-                }
-                Err(e) => {
-                    if tx.send(Event::Error(format!("{e:?}"))).is_err() {
-                        return Ok(());
-                    }
-                }
+            let event = Client::handle(data).unwrap_or_else(|e| Event::Error(format!("{e:?}")));
+            if tx.send(event).is_err() {
+                return Ok(());
             }
         }
     }
 
-    pub fn try_clone_stream(&self) -> io::Result<TcpStream> {
-        self.reader.get_ref().try_clone()
-    }
-
     pub fn spawn_listener(self) -> mpsc::Receiver<Event> {
         let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || self.listen(tx).unwrap_or_else(|e| eprintln!("connection closed: {e}")));
+        std::thread::spawn(move || self.listen(tx));
         rx
+    }
+}
+
+pub struct Client;
+
+impl Client {
+    pub fn connect(addr: &str) -> io::Result<(Writer, Reader)> {
+        let stream = TcpStream::connect(addr)?;
+        let read_half = stream.try_clone()?;
+
+        Ok((
+            Writer { stream },
+            Reader { reader: BufReader::new(read_half), buf: Vec::with_capacity(MAX_MSG) },
+        ))
     }
 
     fn handle(data: &[u8]) -> Result<Event, Error> {

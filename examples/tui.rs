@@ -1,56 +1,24 @@
-use denon::client::Client;
-use ratatui::symbols::line::BOTTOM_LEFT;
-use std::ffi::os_str::Display;
+use std::collections::VecDeque;
 use std::sync::mpsc;
+use std::time::Duration;
+
+use denon::client::Client;
+use denon::state::State;
 
 use ratatui::crossterm::event::{self, Event as CEvent, KeyCode};
-use ratatui::widgets::{Block, Borders, Paragraph, Gauge};
-use ratatui::style::{Style, Color, Modifier};
 use ratatui::layout::{Alignment, Constraint, Layout};
-use ratatui::text::{Span, Line};
-use std::time::Duration;
-use denon::events::Event;
-// use denon::state;
-use denon::state::State;
-use std::io::Write;
-use std::collections::VecDeque;
-
-// #[derive(Debug, Default)]
-// pub struct State {
-//     pub power: Option<bool>,
-//     pub mute: Option<bool>,
-//     pub volume: Option<u8>,
-//     pub input: Option<String>,
-//     pub sleep: Option<u8>,
-//     pub display: [Option<String>; 9],
-// }
-
-// impl State {
-//     pub fn apply(&mut self, event: Event) {
-//         match event {
-//             Event::Power(v)   => self.power = Some(v),
-//             Event::Mute(v)    => self.mute = Some(v),
-//             Event::Volume(v)  => self.volume = Some(v),
-//             Event::Input(v)   => self.input = Some(v),
-//             Event::Sleep(v)   => self.sleep = v,
-//             Event::Display(n, s) => {
-//                 if let Some(slot) = self.display.get_mut(n as usize) {
-//                     *slot = Some(s);
-//                 }
-//             }
-//             Event::Unknown(_) => {}
-//         }
-//     }
-// }
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Gauge, Paragraph};
 
 fn main() -> std::io::Result<()> {
-    let mut client = Client::new("192.168.0.10:23").expect("connection failed");
+    let (mut writer, reader) = Client::connect("192.168.0.10:23").expect("connection failed");
 
     let queries = ["PW?", "MV?", "MU?", "SI?", "SLP?", "NSE"];
-    client.send(&queries).unwrap();
+    writer.send(&queries)?;
 
-    let mut writer = client.try_clone_stream()?;
-    let rx = client.spawn_listener();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || reader.listen(tx));
 
     let mut state = State::default();
     let mut log: VecDeque<String> = VecDeque::new();
@@ -104,8 +72,12 @@ fn main() -> std::io::Result<()> {
                 ]);
 
                 let header_text = format!("Mute:  {:?}\nInput: {:?}", state.mute, state.input);
-                let header = Paragraph::new(header_text)
-                    .block(Block::default().title(title).title_alignment(Alignment::Center).borders(Borders::ALL));
+                let header = Paragraph::new(header_text).block(
+                    Block::default()
+                        .title(title)
+                        .title_alignment(Alignment::Center)
+                        .borders(Borders::ALL),
+                );
                 frame.render_widget(header, header_area);
 
                 let volume = state.volume.unwrap_or(0);
@@ -118,7 +90,6 @@ fn main() -> std::io::Result<()> {
                 frame.render_widget(gauge, volume_area);
 
                 let display_lines = state.display.to_vec();
-
                 let display_widget = Paragraph::new(display_lines.join("\n"))
                     .block(Block::default().title("Display").borders(Borders::ALL));
                 frame.render_widget(display_widget, display_area);
@@ -151,7 +122,7 @@ fn main() -> std::io::Result<()> {
                     if let Some(buf) = command_buf.as_mut() {
                         match key.code {
                             KeyCode::Enter => {
-                                write!(writer, "{buf}\r")?;
+                                writer.send(&[buf.as_str()])?;
                                 log.push_back(format!("> sent: {buf}"));
                                 command_buf = None;
                             }
@@ -165,8 +136,8 @@ fn main() -> std::io::Result<()> {
                     } else {
                         match key.code {
                             KeyCode::Char('q') => break Ok(()),
-                            KeyCode::Up => write!(writer, "MVUP\r")?,
-                            KeyCode::Down => write!(writer, "MVDOWN\r")?,
+                            KeyCode::Up => writer.send(&["MVUP"])?,
+                            KeyCode::Down => writer.send(&["MVDOWN"])?,
                             KeyCode::Char('/') => command_buf = Some(String::new()),
                             _ => {}
                         }
