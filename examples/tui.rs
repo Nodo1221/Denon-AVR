@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::sync::mpsc;
 use std::time::Duration;
 
 use denon::client::Client;
@@ -9,7 +8,7 @@ use ratatui::crossterm::event::{self, Event as CEvent, KeyCode};
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Gauge, Paragraph};
+use ratatui::widgets::{Block, Borders, LineGauge, Paragraph};
 
 fn main() -> std::io::Result<()> {
     let (mut writer, reader) = Client::connect("192.168.0.10:23").expect("connection failed");
@@ -17,8 +16,7 @@ fn main() -> std::io::Result<()> {
     let queries = ["PW?", "MV?", "MU?", "SI?", "SLP?", "NSE"];
     writer.send(&queries)?;
 
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || reader.listen(tx));
+    let (rx, _handle) = reader.spawn_listener();
 
     let mut state = State::default();
     let mut log: VecDeque<String> = VecDeque::new();
@@ -82,7 +80,7 @@ fn main() -> std::io::Result<()> {
 
                 let volume = state.volume.unwrap_or(0);
                 let ratio = (volume as f64 / 60.0).clamp(0.0, 1.0);
-                let gauge = Gauge::default()
+                let gauge = LineGauge::default()
                     .block(Block::default().title("Volume").borders(Borders::ALL))
                     .gauge_style(Style::default().fg(Color::Cyan))
                     .ratio(ratio)
@@ -127,17 +125,21 @@ fn main() -> std::io::Result<()> {
                                 command_buf = None;
                             }
                             KeyCode::Esc => command_buf = None,
-                            KeyCode::Backspace => {
-                                buf.pop();
-                            }
+                            KeyCode::Backspace => { buf.pop(); }
                             KeyCode::Char(c) => buf.push(c),
                             _ => {}
                         }
                     } else {
                         match key.code {
                             KeyCode::Char('q') => break Ok(()),
-                            KeyCode::Up => writer.send(&["MVUP"])?,
-                            KeyCode::Down => writer.send(&["MVDOWN"])?,
+                            KeyCode::Up => {
+                                writer.send(&["MVUP"])?;
+                                log.push_back("> sent: MVUP".to_string())
+                            }
+                            KeyCode::Down => {
+                                writer.send(&["MVDOWN"])?;
+                                log.push_back("> sent: MVDOWN".to_string());
+                            }
                             KeyCode::Char('/') => command_buf = Some(String::new()),
                             _ => {}
                         }
