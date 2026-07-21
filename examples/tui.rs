@@ -1,12 +1,8 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
-use denon::client::Client;
-use denon::state::State;
-
 use ratatui::crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event as CEvent,
-    KeyCode, MouseEventKind,
+    self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode, MouseEventKind,
 };
 use ratatui::crossterm::execute;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Position, Rect};
@@ -14,13 +10,16 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, LineGauge, Paragraph};
 
+use denon::client::Client;
+use denon::state::State;
+
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let [vertical_center] = Layout::vertical([Constraint::Percentage(percent_y)])
-        .flex(Flex::Center) // Automatically pads the top and bottom
+        .flex(Flex::Center) // Automatically pads the top and bottom.
         .areas(area);
 
     let [center] = Layout::horizontal([Constraint::Percentage(percent_x)])
-        .flex(Flex::Center) // Automatically pads the left and right
+        .flex(Flex::Center) // Automatically pads the left and right.
         .areas(vertical_center);
 
     center
@@ -32,7 +31,7 @@ fn main() -> std::io::Result<()> {
     let queries = ["PW?", "MV?", "MU?", "SI?", "SLP?", "NSE"];
     writer.send(&queries)?;
 
-    let (rx, _handle) = reader.spawn_listener();
+    let (rx, _) = reader.spawn_listener();
 
     let mut state = State::default();
     let mut log: VecDeque<String> = VecDeque::new();
@@ -40,7 +39,6 @@ fn main() -> std::io::Result<()> {
     let mut input_area = Rect::default();
     let mut show_help = false;
 
-    // 1. Build Static Layouts Outside
     let main_layout = Layout::vertical([
         Constraint::Length(4),
         Constraint::Min(10),
@@ -55,30 +53,35 @@ fn main() -> std::io::Result<()> {
     let log_block = Block::new().title("Log").borders(Borders::ALL);
     let input_block = Block::new().title("Command").borders(Borders::ALL);
 
-    // 3. Build Static Help Widget Outside (Startup allocation is fine here)
-    let help_widget = Paragraph::new(vec![
-        Line::from_iter([
-            Span::styled("?", Style::new().fg(Color::Yellow)),
-            Span::raw("      toggle this help"),
-        ]),
-        Line::from_iter([
-            Span::styled("/", Style::new().fg(Color::Yellow)),
-            Span::raw("      enter command mode"),
-        ]),
-        Line::from_iter([
-            Span::styled("q", Style::new().fg(Color::Yellow)),
-            Span::raw("      quit the program"),
-            ]),
-        Line::from_iter([
-            Span::styled("p", Style::new().fg(Color::Green)),
-            Span::raw("      toggle power"),
-        ]),
-        Line::from_iter([
-            Span::styled("↑ ↓", Style::new().fg(Color::Green)),
-            Span::raw("    volume up / down"),
-        ]),
-    ])
-    .block(Block::new().title("Help").borders(Borders::ALL).title_bottom(Line::from(Span::styled(" Press Esc to close ", Style::new().fg(Color::LightBlue))).right_aligned()));
+    let help_widget = Paragraph::new(
+        [
+            ("?", "toggle this help", Color::Yellow),
+            ("/", "enter comamnd mode", Color::Yellow),
+            ("q", "quit the program", Color::Yellow),
+            ("p", "toggle power", Color::Green),
+            ("↑ ↓", "volume up / down", Color::Green),
+        ]
+        .into_iter()
+        .map(|l| {
+            Line::from_iter([
+                Span::styled(format!("{:6}", l.0), Style::new().fg(l.2).bold()),
+                Span::raw(l.1),
+            ])
+        })
+        .collect::<Vec<_>>(),
+    )
+    .block(
+        Block::new()
+            .title("Help")
+            .borders(Borders::ALL)
+            .title_bottom(
+                Line::from(Span::styled(
+                    " Press Esc to close ",
+                    Style::new().fg(Color::LightBlue),
+                ))
+                .right_aligned(),
+            ),
+    );
 
     execute!(std::io::stdout(), EnableMouseCapture)?;
 
@@ -113,7 +116,9 @@ fn main() -> std::io::Result<()> {
                 let title = Line::from_iter([
                     Span::styled(
                         " Denon AVR ",
-                        Style::new().fg(Color::Rgb(255, 215, 0)).add_modifier(Modifier::BOLD),
+                        Style::new()
+                            .fg(Color::Rgb(255, 215, 0))
+                            .add_modifier(Modifier::BOLD),
                     ),
                     power_icon,
                     Span::raw(" "),
@@ -139,7 +144,7 @@ fn main() -> std::io::Result<()> {
                 frame.render_widget(gauge, volume_area);
 
                 // Display - avoided .join("\n") allocation
-                let display_text: Text = state.display.iter().map(|s| Line::from(s.as_str())).collect();
+                let display_text = state.display.join("\n");
                 let display_widget = Paragraph::new(display_text).block(display_block.clone());
                 frame.render_widget(display_widget, display_area);
 
@@ -183,7 +188,9 @@ fn main() -> std::io::Result<()> {
                                     command_buf = None;
                                 }
                                 KeyCode::Esc => command_buf = None,
-                                KeyCode::Backspace => { buf.pop(); }
+                                KeyCode::Backspace => {
+                                    buf.pop();
+                                }
                                 KeyCode::Char(c) => buf.push(c),
                                 _ => {}
                             }
@@ -191,7 +198,11 @@ fn main() -> std::io::Result<()> {
                             match key.code {
                                 KeyCode::Char('q') => break Ok(()),
                                 KeyCode::Char('p') => {
-                                    let cmd = if state.power == Some(true) { "PWOFF" } else { "PWON" };
+                                    let cmd = if state.power == Some(true) {
+                                        "PWOFF"
+                                    } else {
+                                        "PWON"
+                                    };
                                     writer.send(&[cmd])?;
                                     log.push_back(format!("> sent: {cmd}"));
                                 }
@@ -212,7 +223,10 @@ fn main() -> std::io::Result<()> {
                     }
                     CEvent::Mouse(mouse) => match mouse.kind {
                         MouseEventKind::Down(_)
-                            if input_area.contains(Position { x: mouse.column, y: mouse.row }) =>
+                            if input_area.contains(Position {
+                                x: mouse.column,
+                                y: mouse.row,
+                            }) =>
                         {
                             if command_buf.is_none() {
                                 command_buf = Some(String::new());
