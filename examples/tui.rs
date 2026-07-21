@@ -5,25 +5,14 @@ use ratatui::crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode, MouseEventKind,
 };
 use ratatui::crossterm::execute;
-use ratatui::layout::{Alignment, Constraint, Flex, Layout, Position, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::layout::{Constraint, Flex, Layout, Position, Rect};
+use ratatui::prelude::Stylize;
+use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Clear, LineGauge, Paragraph};
+use ratatui::widgets::{Block, BorderType, Clear, LineGauge, Paragraph};
 
 use denon::client::Client;
 use denon::state::State;
-
-fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let [vertical_center] = Layout::vertical([Constraint::Percentage(percent_y)])
-        .flex(Flex::Center) // Automatically pads the top and bottom.
-        .areas(area);
-
-    let [center] = Layout::horizontal([Constraint::Percentage(percent_x)])
-        .flex(Flex::Center) // Automatically pads the left and right.
-        .areas(vertical_center);
-
-    center
-}
 
 fn main() -> std::io::Result<()> {
     let (mut writer, reader) = Client::connect("192.168.0.10:23").expect("connection failed");
@@ -47,16 +36,11 @@ fn main() -> std::io::Result<()> {
     let split_layout = Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)]);
     let left_layout = Layout::vertical([Constraint::Length(3), Constraint::Min(5)]);
 
-    // 2. Build Static Blocks Outside
-    let gauge_block = Block::new().title("Volume").borders(Borders::ALL);
-    let display_block = Block::new().title("Display").borders(Borders::ALL);
-    let log_block = Block::new().title("Log").borders(Borders::ALL);
-    let input_block = Block::new().title("Command").borders(Borders::ALL);
-
+    // help_widget is complex enough to hoist; rendered by reference via Widget for &W
     let help_widget = Paragraph::new(
         [
             ("?", "toggle this help", Color::Yellow),
-            ("/", "enter comamnd mode", Color::Yellow),
+            ("/", "enter command mode", Color::Yellow),
             ("q", "quit the program", Color::Yellow),
             ("p", "toggle power", Color::Green),
             ("↑ ↓", "volume up / down", Color::Green),
@@ -68,12 +52,12 @@ fn main() -> std::io::Result<()> {
                 Span::raw(l.1),
             ])
         })
-        .collect::<Vec<_>>(),
+        .collect::<Text<'_>>(),
     )
     .block(
-        Block::new()
+        Block::bordered()
+            .border_type(BorderType::Double)
             .title("Help")
-            .borders(Borders::ALL)
             .title_bottom(
                 Line::from(Span::styled(
                     " Press Esc to close ",
@@ -104,48 +88,42 @@ fn main() -> std::io::Result<()> {
                 let [volume_area, display_area] = left_layout.areas(left_area);
 
                 // Header is dynamic, build inside
-                let power_icon = match state.power {
-                    Some(true) => Span::styled("●", Style::new().fg(Color::Green)),
-                    Some(false) => Span::styled("●", Style::new().fg(Color::Yellow)),
-                    None => Span::styled("●", Style::new().fg(Color::DarkGray)),
-                };
                 let sleep_text = match state.sleep {
                     Some(m) => format!("(Sleep: {m}m) "),
                     None => "(no sleep) ".to_string(),
                 };
+                let power_color = match state.power {
+                    Some(true) => Color::Green,
+                    Some(false) => Color::Yellow,
+                    None => Color::DarkGray,
+                };
+
                 let title = Line::from_iter([
                     Span::styled(
                         " Denon AVR ",
-                        Style::new()
-                            .fg(Color::Rgb(255, 215, 0))
-                            .add_modifier(Modifier::BOLD),
+                        Style::new().fg(Color::Rgb(255, 215, 0)).bold(),
                     ),
-                    power_icon,
-                    Span::raw(" "),
+                    "● ".fg(power_color),
                     Span::raw(sleep_text),
                 ]);
 
                 let header_text = format!("Mute:  {:?}\nInput: {:?}", state.mute, state.input);
-                let header = Paragraph::new(header_text).block(
-                    Block::new()
-                        .title(title)
-                        .title_alignment(Alignment::Center)
-                        .borders(Borders::ALL),
-                );
+                let header =
+                    Paragraph::new(header_text).block(Block::bordered().title(title.centered()));
                 frame.render_widget(header, header_area);
 
                 let volume = state.volume.unwrap_or(0);
                 let ratio = (volume as f64 / 60.0).clamp(0.0, 1.0);
                 let gauge = LineGauge::default()
-                    .block(gauge_block.clone())
+                    .block(Block::bordered().title("Volume"))
                     .filled_style(Style::new().fg(Color::Cyan))
                     .ratio(ratio)
                     .label(format!("{volume}/60"));
                 frame.render_widget(gauge, volume_area);
 
-                // Display - avoided .join("\n") allocation
-                let display_text = state.display.join("\n");
-                let display_widget = Paragraph::new(display_text).block(display_block.clone());
+                // Display
+                let display_widget = Paragraph::new(state.display.join("\n"))
+                    .block(Block::bordered().title("Display"));
                 frame.render_widget(display_widget, display_area);
 
                 // Log - avoided .join("\n") massive allocation
@@ -153,7 +131,7 @@ fn main() -> std::io::Result<()> {
                 let inner_height = log_area.height.saturating_sub(2);
                 let scroll = (log.len() as u16).saturating_sub(inner_height);
                 let log_widget = Paragraph::new(log_text)
-                    .block(log_block.clone())
+                    .block(Block::bordered().title("Log"))
                     .scroll((scroll, 0));
                 frame.render_widget(log_widget, log_area);
 
@@ -161,7 +139,11 @@ fn main() -> std::io::Result<()> {
                     Some(buf) => format!("/{buf}"),
                     None => "press / to enter a command, ? for help".to_string(),
                 };
-                let input_widget = Paragraph::new(input_text).block(input_block.clone());
+                let input_widget = Paragraph::new(input_text).block(
+                    Block::bordered()
+                        .border_type(BorderType::LightDoubleDashed)
+                        .title("Command"),
+                );
                 frame.render_widget(input_widget, ia);
 
                 if let Some(buf) = &command_buf {
@@ -171,7 +153,10 @@ fn main() -> std::io::Result<()> {
                 }
 
                 if show_help {
-                    let popup_area = centered_rect(50, 50, frame.area());
+                    // Rect::centered replaces the centered_rect helper
+                    let popup_area = frame
+                        .area()
+                        .centered(Constraint::Percentage(50), Constraint::Percentage(50));
                     frame.render_widget(Clear, popup_area);
                     frame.render_widget(&help_widget, popup_area); // Rendered by reference
                 }
